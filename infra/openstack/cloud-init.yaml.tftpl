@@ -1,0 +1,29 @@
+#cloud-config
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - python3
+write_files:
+  - path: /opt/openstack-vdi/compose.yaml
+    permissions: '0644'
+    content: |
+      ${compose}
+  - path: /opt/openstack-vdi/.env
+    permissions: '0600'
+    content: |
+      ADVERTISE_HOST=${advertise_host}
+      DATA_DIR=/var/lib/openstack-vdi/rustdesk
+  - path: /usr/local/sbin/start-vdi-server
+    permissions: '0755'
+    content: |
+      ${start_script}
+  - path: /etc/systemd/system/openstack-vdi-server.service
+    permissions: '0644'
+    content: |
+      ${service}
+runcmd:
+  - [systemctl, enable, --now, docker]
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, openstack-vdi-server]
+

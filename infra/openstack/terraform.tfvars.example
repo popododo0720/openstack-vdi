@@ -1,0 +1,7 @@
+ubuntu_image_id       = "GLANCE_UBUNTU_24_04_IMAGE_UUID"
+flavor_id             = "FLAVOR_UUID"
+external_network_name = "public"
+ssh_public_key        = "ssh-ed25519 REPLACE_WITH_YOUR_PUBLIC_KEY"
+admin_cidr            = "192.168.0.40/32"
+client_cidrs          = ["192.168.0.0/24"]
+

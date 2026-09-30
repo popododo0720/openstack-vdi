@@ -11,4 +11,11 @@ dist/
 clouds.yaml
 clouds.yml
 artifacts/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+crash.log
 

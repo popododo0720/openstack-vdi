@@ -1,0 +1,36 @@
+name: openstack-vdi-server
+
+x-common: &common
+  image: rustdesk/rustdesk-server@sha256:10818ec05b179039c6660f4d8e74b303f0db2858bbad2b18e24992ea22d54cd6
+  user: "10001:10001"
+  working_dir: /data
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  mem_limit: 256m
+  cpus: 1
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  hbbs:
+    <<: *common
+    command: [hbbs, -r, "${ADVERTISE_HOST:?set ADVERTISE_HOST}:21117", -k, "_"]
+    ports:
+      - "21115:21115/tcp"
+      - "21116:21116/tcp"
+      - "21116:21116/udp"
+    volumes:
+      - "${DATA_DIR:?set DATA_DIR}:/data"
+  hbbr:
+    <<: *common
+    command: [hbbr, -k, "_"]
+    ports:
+      - "21117:21117/tcp"
+    volumes:
+      - "${DATA_DIR:?set DATA_DIR}:/data:ro"
+

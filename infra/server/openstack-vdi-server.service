@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenStack VDI RustDesk ID and relay services
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/openstack-vdi
+ExecStart=/usr/local/sbin/start-vdi-server
+ExecStop=/usr/bin/docker compose stop
+TimeoutStartSec=600
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
+
