@@ -4,6 +4,8 @@
 
 - 단위/Qt 테스트: 36개 통과.
 - Linux PyInstaller 패키지 생성 및 offscreen 데모 실행 확인.
+- GitHub Actions에서 Linux/Windows 테스트 통과, Windows 실행 패키지 생성 성공.
+  실제 Windows 데스크톱에서의 실행·화면 연결 검증과는 구분합니다.
 - 앱의 OpenStackBackend로 실제 인증과 프로젝트 범위 VM 목록 조회 성공.
 - Terraform으로 Ubuntu 24.04 VM, Cinder 부팅 볼륨, 전용 네트워크와 floating IP 생성.
 - 최종 cloud-init 설정만으로 Docker와 RustDesk hbbs/hbbr 자동 설치 성공.
