@@ -18,6 +18,9 @@
 - 4 vCPU / 8 GiB / 80 GiB Windows VM 생성 및 Windows 초기 설정 화면 부팅 확인.
 - Windows 게스트 에이전트와 내부 IPv4 통신 확인.
 - Windows RustDesk 서비스 설치, 사내 ID/릴레이 서버 설정, 서버 DB의 peer 등록 확인.
+- Windows 최초 설정 완료 및 테스트 계정의 바탕화면 진입 확인.
+- 생성한 로컬 테스트 계정의 Windows 인증 성공 확인.
+- Windows 초기 설정 중 재부팅 후 RustDesk 서비스 자동 실행과 동일 ID 유지 확인.
 
 아직 검증하지 않은 항목: Windows 패키지 실행, Windows VM 전원 정지/시작,
 실제 RustDesk 화면·키보드·마우스 연결, 사용자별 접근 정책 및 업무망/폐쇄망 분리.
