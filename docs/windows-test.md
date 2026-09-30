@@ -18,6 +18,19 @@
 
 ## VM 안에서 준비할 것
 
+관리자 PowerShell에서 [설치 스크립트](../scripts/setup-windows-rustdesk.ps1)를 실행하면
+고정 버전/체크섬을 확인하고 RustDesk 서비스와 서버 설정을 적용할 수 있습니다.
+
+```powershell
+.\setup-windows-rustdesk.ps1 -IdServer 'SERVER_IP:21116' -RelayServer 'SERVER_IP:21117' -ServerKey 'SERVER_PUBLIC_KEY'
+```
+
+별도로 생성한 무인 접속 비밀번호는 `C:\ProgramData\OpenStackVDI\rustdesk-access.json`에
+저장되며 SYSTEM/Administrators만 읽을 수 있습니다. 스크립트 출력에는 비밀번호를 넣지 않습니다.
+이 파일을 공개 저장소나 일반 사용자 공유 폴더에 복사하지 않습니다.
+Windows/OpenStack 비밀번호는 이 스크립트에 전달하지 않습니다.
+기존 RustDesk가 설치돼 있으면 자동 업그레이드하지 않고 설정을 적용합니다.
+
 - Windows가 정상 부팅되고 로그인할 수 있어야 합니다.
 - RustDesk를 설치형 서비스로 설치합니다. 임시 실행만으로 구성하지 않습니다.
 - 단말과 VM의 RustDesk에 같은 사내 ID/relay 서버 및 서버 공개키를 설정합니다.
@@ -78,4 +91,3 @@ RustDesk 세션 성공/종료를 수집하지 않고 별도 프로세스를 실�
 - https://rustdesk.com/docs/en/client/
 - https://rustdesk.com/docs/en/self-host/
 - https://rustdesk.com/docs/en/self-host/client-configuration/advanced-settings/
-
