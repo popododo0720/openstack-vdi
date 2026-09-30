@@ -19,6 +19,8 @@ x-common: &common
 services:
   hbbs:
     <<: *common
+    environment:
+      XDG_CONFIG_HOME: /data/config
     command: [hbbs, -r, "${ADVERTISE_HOST:?set ADVERTISE_HOST}:21117", -k, "_"]
     ports:
       - "21115:21115/tcp"
@@ -33,4 +35,3 @@ services:
       - "21117:21117/tcp"
     volumes:
       - "${DATA_DIR:?set DATA_DIR}:/data:ro"
-
