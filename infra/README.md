@@ -29,6 +29,18 @@ terraform output
 나중에 업로드한 Windows qcow2로 VM을 만들 때 `desktop_network_id` 출력의 네트워크를
 사용하면 이 테스트 서버와 같은 내부망에서 연결할 수 있습니다.
 
+## Windows 테스트 VM 추가
+
+검사한 qcow2를 Glance에 private 이미지로 등록한 다음, 운영 tfvars에
+`windows_image_id`, `windows_flavor_id`, `windows_disk_gb`를 추가하고 다시
+`terraform plan` / `terraform apply`를 실행합니다. 기본값은 Windows VM을 생성하지 않습니다.
+디스크는 이미지의 가상 크기 이상이어야 합니다.
+
+Windows VM은 같은 내부 네트워크를 사용하며 floating IP와 인바운드 RDP 포트를
+할당하지 않습니다. RustDesk가 서버로 연결을 시작하도록 구성합니다.
+첫 로그인과 설치에는 OpenStack의 관리자 콘솔을 사용할 수 있습니다.
+이미지 부팅 모드와 드라이버 확인은 [Windows 준비 문서](../docs/windows-test.md)를 참고하세요.
+
 ## 서버 확인
 
 출력된 floating IP로 접속합니다. 최초 부팅 시 Docker 설치와 이미지 다운로드에 시간이 걸립니다.
