@@ -14,6 +14,10 @@
 - 재부팅 전후 서버 공개키 SHA-256 일치.
 - 외부에서 TCP 21115/21116/21117 연결 성공, VM 내부 UDP 21116 리스너 확인.
 - 최종 Terraform plan: 변경 없음.
+- Windows 11 qcow2 무결성 검사, 체크섬 검증 업로드, Glance private/active 확인.
+- 4 vCPU / 8 GiB / 80 GiB Windows VM 생성 및 Windows 초기 설정 화면 부팅 확인.
+- Windows 게스트 에이전트와 내부 IPv4 통신 확인.
+- Windows RustDesk 서비스 설치, 사내 ID/릴레이 서버 설정, 서버 DB의 peer 등록 확인.
 
 아직 검증하지 않은 항목: Windows 패키지 실행, Windows VM 전원 정지/시작,
 실제 RustDesk 화면·키보드·마우스 연결, 사용자별 접근 정책 및 업무망/폐쇄망 분리.
