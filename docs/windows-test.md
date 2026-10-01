@@ -25,6 +25,11 @@
 .\setup-windows-rustdesk.ps1 -IdServer 'SERVER_IP:21116' -RelayServer 'SERVER_IP:21117' -ServerKey 'SERVER_PUBLIC_KEY'
 ```
 
+외부 다운로드가 제한되면 공식 RustDesk 1.4.9 설치 EXE를 미리 전달하고
+`-InstallerPath 'C:\Setup\rustdesk-1.4.9-x86_64.exe'`를 추가합니다.
+이 경우에도 고정 SHA-256 검사를 수행합니다. 설치 중 임시 설정 가져오기 서비스와
+실제 실행 서비스를 구분하여 후자가 준비된 뒤 접속 설정을 적용합니다.
+
 별도로 생성한 무인 접속 비밀번호는 `C:\ProgramData\OpenStackVDI\rustdesk-access.json`에
 저장되며 SYSTEM/Administrators만 읽을 수 있습니다. 스크립트 출력에는 비밀번호를 넣지 않습니다.
 이 파일을 공개 저장소나 일반 사용자 공유 폴더에 복사하지 않습니다.
