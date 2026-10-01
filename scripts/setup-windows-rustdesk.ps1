@@ -58,13 +58,22 @@ if (Test-Path $credentialFile) {
     $password = [Convert]::ToBase64String($bytes)
 }
 if (-not $password) { throw 'Unattended password is empty.' }
-& $exe --password $password | Out-Null
+& $exe --option verification-method use-permanent-password | Out-Null
+$passwordResult = ((& $exe --password $password | Out-String).Trim())
+if ($passwordResult -ne 'Done!') {
+    throw 'RustDesk did not acknowledge the unattended password setting.'
+}
+Start-Sleep 3
 Restart-Service RustDesk
 Start-Sleep 10
 $id = ((& $exe --get-id | Out-String).Trim())
 if ($id -notmatch '^\d{6,}$') { throw 'RustDesk has not returned a valid ID yet.' }
 $actualServer = ((& $exe --option custom-rendezvous-server | Out-String).Trim())
 if ($actualServer -ne $IdServer) { throw 'RustDesk server setting was not applied.' }
+$actualMethod = ((& $exe --option verification-method | Out-String).Trim())
+if ($actualMethod -ne 'use-permanent-password') {
+    throw 'RustDesk permanent-password authentication was not applied.'
+}
 @{ id = $id; password = $password; server = $IdServer } |
     ConvertTo-Json | Set-Content -Encoding UTF8 $credentialFile
 # Intentionally never print the password.
