@@ -23,6 +23,10 @@ command = [
     "openstack",
     "--collect-submodules",
     "keystoneauth1.identity",
+    "--hidden-import",
+    "dogpile.cache.backends.null",
+    "--hidden-import",
+    "dogpile.cache.backends.memory",
     "--exclude-module",
     "openstack.tests",
     "--exclude-module",
@@ -56,3 +60,10 @@ command = [
     str(root / "scripts" / "launcher.py"),
 ]
 subprocess.run(command, cwd=root, check=True)
+executable = (
+    root
+    / "dist"
+    / "OpenStackVDI"
+    / ("OpenStackVDI.exe" if sys.platform == "win32" else "OpenStackVDI")
+)
+subprocess.run([str(executable), "--check-package"], cwd=root, check=True, timeout=60)

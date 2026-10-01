@@ -557,7 +557,16 @@ class MainWindow(QMainWindow):
 def main() -> int:
     parser = argparse.ArgumentParser(description="OpenStack VDI native launcher")
     parser.add_argument("--demo", action="store_true", help="클라우드 연결 없이 데모 UI 실행")
+    parser.add_argument("--check-package", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.check_package:
+        from .runtime_check import check_package_runtime
+
+        try:
+            check_package_runtime()
+        except Exception:
+            return 1
+        return 0
     app = QApplication(sys.argv[:1])
     app.setApplicationName("OpenStack VDI")
     app.setOrganizationName("OpenStackVDI")
