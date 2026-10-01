@@ -41,6 +41,12 @@ Windows VM은 같은 내부 네트워크를 사용하며 floating IP와 인바�
 첫 로그인과 설치에는 OpenStack의 관리자 콘솔을 사용할 수 있습니다.
 이미지 부팅 모드와 드라이버 확인은 [Windows 준비 문서](../docs/windows-test.md)를 참고하세요.
 
+접속용 Windows 단말도 필요하면 같은 tfvars에 `enable_windows_client = true`를
+추가합니다. `windows-11-vdi-client-poc`이 별도 부팅 볼륨과 포트로 생성됩니다.
+이 VM에는 네이티브 런처와 RustDesk를 설치하고, 업무용 `windows-11-vdi-poc`에
+접속합니다. `windows_client_server_id`, `windows_client_private_ip`로 식별합니다.
+두 Windows VM은 서로 다른 역할이며 접속용 VM에도 floating IP나 RDP 포트를 열지 않습니다.
+
 ## 서버 확인
 
 출력된 floating IP로 접속합니다. 최초 부팅 시 Docker 설치와 이미지 다운로드에 시간이 걸립니다.

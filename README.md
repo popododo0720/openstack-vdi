@@ -42,7 +42,8 @@ VM 이름으로 필터링해 권한을 판단하지 않고, API 작업 전에 �
 RustDesk ID/릴레이 서버를 먼저 만듭니다. 작업 PC에 서버를 설치하지 않습니다.
 
 [Windows 테스트 절차](docs/windows-test.md)를 참고하세요.
-먼저 Windows VM 한 대에 RustDesk를 설치한 뒤 연결 ID를 등록하면 됩니다.
+업무용 Windows에는 RustDesk를 설치하고, 접속용 단말에는 이 런처와 RustDesk를 설치합니다.
+접속용 단말도 VM으로 구성하는 절차는 [Windows 단말 프로토타입](docs/client-prototype.md)에 있습니다.
 런처 내 자동 VM 생성, 통합 SSO, 중앙 RustDesk 접근 제어는 아직 포함하지 않습니다.
 
 ## 개발 및 검증
