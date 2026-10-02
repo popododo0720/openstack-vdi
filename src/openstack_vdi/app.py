@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import time
 from collections.abc import Callable
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal, Slot
@@ -9,12 +11,12 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
-    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -29,9 +31,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import credentials
 from .backend import Backend, DemoBackend, OpenStackBackend, safe_error
+from .broker_client import BrokerBackend
+from .connection_flow import ConnectIntent
 from .models import CloudProfile, Desktop, LoginSession, UserError
-from .remote import launch_rustdesk, validate_peer_id
+from .native_session import NativeSession, focus_peer
+from .remote import validate_peer_id
 from .settings import SettingsStore
 
 STYLE = """
@@ -132,8 +138,22 @@ class MainWindow(QMainWindow):
     ):
         super().__init__()
         self.demo = demo
-        self.backend = backend or (DemoBackend() if demo else OpenStackBackend())
         self.settings = settings or SettingsStore()
+        self._provided_backend = backend
+        self.backend = backend or (
+            DemoBackend()
+            if demo
+            else (BrokerBackend() if self.settings.profile().broker_url else OpenStackBackend())
+        )
+        self.remote = NativeSession()
+        self.intent = None
+        self._remote_id = ""
+        self._background = False
+        self._queued = None
+        self._last_refresh = 0.0
+        self._auto_retried = False
+        self._connect_generation = 0
+        self._opening = False
         self.session: LoginSession | None = None
         self.desktops: list[Desktop] = []
         self._task: Task | None = None
@@ -143,8 +163,8 @@ class MainWindow(QMainWindow):
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(1)
         self.setWindowTitle("OpenStack VDI" + (" — 데모" if demo else ""))
-        self.resize(1120, 780)
-        self.setMinimumSize(880, 720)
+        self.resize(1000, 680)
+        self.setMinimumSize(760, 560)
         self.setStyleSheet(STYLE)
         self.pages = QStackedWidget()
         self.setCentralWidget(self.pages)
@@ -153,6 +173,10 @@ class MainWindow(QMainWindow):
         self.timer = QTimer(self)
         self.timer.setInterval(3000 if demo else 5000)
         self.timer.timeout.connect(self.refresh)
+        self.remote_timer = QTimer(self)
+        self.remote_timer.setInterval(1000)
+        self.remote_timer.timeout.connect(self._poll_remote)
+        self.remote_timer.start()
         self.statusBar().showMessage(self.settings.warning or "OpenStack 계정으로 로그인하세요.")
         if demo:
             QTimer.singleShot(0, self.login)
@@ -162,60 +186,79 @@ class MainWindow(QMainWindow):
         outer = QVBoxLayout(page)
         outer.setContentsMargins(48, 24, 48, 24)
         outer.addWidget(label("OpenStack VDI", "title"))
-        outer.addWidget(label("내 데스크톱에 연결하세요", "subtitle"))
-        card = QFrame()
-        card.setObjectName("card")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(24, 20, 24, 20)
-        form = QFormLayout()
-        form.setVerticalSpacing(8)
+        outer.addWidget(label("회사 계정으로 내 데스크톱에 접속하세요", "subtitle"))
         profile = self.settings.profile()
-        self.fields: dict[str, QLineEdit] = {}
-        for key, title, value, placeholder in [
-            ("auth_url", "인증 주소", profile.auth_url, "https://cloud.example:5000/v3"),
-            ("username", "사용자", profile.username, "사용자 이름"),
-            ("password", "비밀번호", "", "저장하지 않습니다"),
-            ("project_name", "프로젝트", profile.project_name, "사용자에게 할당된 프로젝트"),
-            ("user_domain", "사용자 도메인", profile.user_domain, "Default"),
-            ("project_domain", "프로젝트 도메인", profile.project_domain, "Default"),
-            ("region_name", "리전", profile.region_name, "비워두면 기본 리전"),
+        self.fields = {}
+        form = QFormLayout()
+        for key, title, value in [
+            ("username", "계정", profile.username),
+            ("password", "비밀번호", ""),
         ]:
             field = QLineEdit(value)
             field.setObjectName(key)
-            field.setPlaceholderText(placeholder)
             if key == "password":
                 field.setEchoMode(QLineEdit.EchoMode.Password)
                 field.returnPressed.connect(self.login)
             self.fields[key] = field
             form.addRow(title, field)
-        ca_row = QHBoxLayout()
+        outer.addLayout(form)
+        self.remember = QCheckBox("이 Windows 계정에 로그인 정보 저장")
+        self.remember.setEnabled(os.name == "nt" and not self.demo)
+        self.remember.setToolTip(
+            "Windows 자격 증명 관리자에 저장합니다. 공유 PC에서는 선택하지 마세요."
+        )
+        outer.addWidget(self.remember)
+        self.advanced = QWidget()
+        advanced = QFormLayout(self.advanced)
+        for key, title, value in [
+            ("broker_url", "VDI 서버", profile.broker_url),
+            ("auth_url", "직접 연결 인증 주소", profile.auth_url),
+            ("project_name", "직접 연결 프로젝트", profile.project_name),
+            ("user_domain", "사용자 도메인", profile.user_domain),
+            ("project_domain", "프로젝트 도메인", profile.project_domain),
+            ("region_name", "리전", profile.region_name),
+        ]:
+            field = QLineEdit(value)
+            self.fields[key] = field
+            advanced.addRow(title, field)
         self.ca = QLineEdit(profile.ca_file)
-        self.ca.setPlaceholderText("공인 인증서는 비워두세요")
+        ca_row = QHBoxLayout()
         ca_row.addWidget(self.ca)
-        browse = QPushButton("선택")
+        browse = QPushButton("인증서 선택")
         browse.clicked.connect(self._choose_ca)
         ca_row.addWidget(browse)
-        form.addRow("CA 인증서", ca_row)
+        advanced.addRow("CA 인증서", ca_row)
         self.interface = QComboBox()
         self.interface.addItems(["public", "internal"])
         self.interface.setCurrentText(profile.interface)
-        form.addRow("API 접속 경로", self.interface)
-        layout.addLayout(form)
+        advanced.addRow("직접 연결 경로", self.interface)
+        toggle = QPushButton("연결 설정")
+        toggle.setCheckable(True)
+        toggle.toggled.connect(self.advanced.setVisible)
+        outer.addWidget(toggle)
+        outer.addWidget(self.advanced)
+        self.advanced.hide()
         self.login_error = label("", "error")
         self.login_error.hide()
-        layout.addWidget(self.login_error)
+        outer.addWidget(self.login_error)
         self.login_button = QPushButton("로그인")
         self.login_button.setObjectName("primary")
         self.login_button.clicked.connect(self.login)
-        layout.addWidget(self.login_button)
-        outer.addWidget(card)
+        outer.addWidget(self.login_button)
         outer.addWidget(
             label(
-                "접속 정보만 저장합니다. 비밀번호와 인증 토큰은 파일에 저장하지 않습니다.", "muted"
+                "RustDesk 암호는 첫 연결 때 ‘비밀번호 기억’을 선택하세요.\n"
+                "Windows 잠금은 Windows 계정으로 해제합니다.",
+                "muted",
             )
         )
         outer.addStretch()
         self.pages.addWidget(page)
+        saved = credentials.read(profile)
+        if saved:
+            self.fields["password"].setText(saved)
+            self.remember.setChecked(True)
+        self.fields["username"].textChanged.connect(lambda _: self.fields["password"].clear())
 
     def _make_desktop_page(self):
         page = QWidget()
@@ -229,9 +272,12 @@ class MainWindow(QMainWindow):
         titles.addWidget(self.account)
         header.addLayout(titles)
         header.addStretch()
-        self.settings_button = QPushButton("RustDesk 설정")
+        self.settings_button = QPushButton("연결 설정")
         self.settings_button.clicked.connect(self.configure_rustdesk)
         header.addWidget(self.settings_button)
+        self.about_button = QPushButton("앱 정보 / 업데이트")
+        self.about_button.clicked.connect(self.about)
+        header.addWidget(self.about_button)
         self.logout_button = QPushButton("로그아웃")
         self.logout_button.clicked.connect(self.logout)
         header.addWidget(self.logout_button)
@@ -252,7 +298,9 @@ class MainWindow(QMainWindow):
         row.addWidget(self.refresh_button)
         layout.addLayout(row)
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["데스크톱", "전원 상태", "IP 주소", "RustDesk ID"])
+        self.table.setHorizontalHeaderLabels(["내 PC", "상태", "IP 주소", "RustDesk ID"])
+        self.table.setColumnHidden(2, True)
+        self.table.setColumnHidden(3, True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -267,7 +315,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.details)
         actions = QHBoxLayout()
         self.buttons: dict[str, QPushButton] = {}
-        for action, title in [("start", "켜기"), ("reboot", "재부팅"), ("stop", "전원 정지")]:
+        for action, title in [("start", "켜기"), ("reboot", "재부팅 후 접속"), ("stop", "PC 종료")]:
             button = QPushButton(title)
             button.clicked.connect(lambda checked=False, action=action: self.power(action))
             self.buttons[action] = button
@@ -275,6 +323,12 @@ class MainWindow(QMainWindow):
         self.peer_button = QPushButton("연결 ID 설정")
         self.peer_button.clicked.connect(self.configure_peer)
         actions.addWidget(self.peer_button)
+        self.cancel_button = QPushButton("접속 취소")
+        self.cancel_button.clicked.connect(self.cancel_connect)
+        actions.addWidget(self.cancel_button)
+        self.disconnect_button = QPushButton("연결 창 닫기")
+        self.disconnect_button.clicked.connect(self.disconnect)
+        actions.addWidget(self.disconnect_button)
         actions.addStretch()
         self.connect_button = QPushButton("데스크톱 접속")
         self.connect_button.setObjectName("primary")
@@ -313,6 +367,8 @@ class MainWindow(QMainWindow):
             return
         profile = self._profile()
         password = self.fields["password"].text()
+        if not self.demo and self._provided_backend is None:
+            self.backend = BrokerBackend() if profile.broker_url else OpenStackBackend()
         if not self.demo:
             try:
                 profile.validate()
@@ -326,26 +382,49 @@ class MainWindow(QMainWindow):
         self.fields["password"].clear()
         self._run(
             lambda: self.backend.login(profile, password),
-            lambda session: self._logged_in(session, profile),
+            lambda session: self._logged_in(session, profile, password),
             "로그인 중…",
         )
 
-    def _logged_in(self, session: LoginSession, profile: CloudProfile):
+    def _logged_in(self, session: LoginSession, profile: CloudProfile, password=""):
         self.session = session
         if not self.demo:
             try:
                 self.settings.save_profile(profile)
+                if self.remember.isChecked():
+                    credentials.save(profile, password)
+                else:
+                    credentials.forget(profile)
             except UserError as error:
                 self.statusBar().showMessage(str(error))
-        self.account.setText(f"{session.username}  /  {session.project_name}")
+        self.account.setText(f"{session.username} 님")
+        self.peer_button.setVisible(not isinstance(self.backend, BrokerBackend))
+        self.settings_button.setVisible(not isinstance(self.backend, BrokerBackend))
         self.pages.setCurrentIndex(1)
         self.timer.start()
         self.refresh()
 
     def logout(self):
-        if self._busy:
+        if self._foreground_busy():
             return
+        if (
+            self.remote.peer
+            and QMessageBox.question(
+                self,
+                "로그아웃",
+                "이 앱에서 연 원격 창을 닫고 로그아웃할까요? 업무용 PC는 계속 켜져 있습니다.",
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
+        self._connect_generation += 1
+        self._opening = False
+        self.intent = None
+        self._queued = None
+        self.remote.close()
         self.timer.stop()
+        credentials.forget(self.settings.profile())
+        self.remember.setChecked(False)
         self._run(self.backend.close, self._logged_out, "로그아웃 중…")
 
     def _logged_out(self, _):
@@ -354,93 +433,124 @@ class MainWindow(QMainWindow):
         self.table.setRowCount(0)
         self._fresh = False
         self.pages.setCurrentIndex(0)
-        self.statusBar().showMessage("로그아웃했습니다. 이미 열린 RustDesk 연결은 별도로 닫으세요.")
+        self.statusBar().showMessage("로그아웃했습니다. 저장한 앱 로그인 정보도 삭제했습니다.")
 
-    def _run(self, operation: Callable, done: Callable, message: str):
+    def _foreground_busy(self):
+        return (self._busy and not self._background) or self._queued is not None
+
+    def _run(self, operation: Callable, done: Callable, message: str, background=False):
         if self._busy:
+            if self._background and not background and self._queued is None:
+                self._queued = (operation, done, message)
+                self._update_controls()
             return
         self._busy = True
+        self._background = background
         self._done = done
         self._task = Task(operation)
         self._task.signals.complete.connect(self._finished)
         self._update_controls()
-        self.statusBar().showMessage(message)
+        if not background:
+            self.statusBar().showMessage(message)
         self.pool.start(self._task)
 
     @Slot(object, object)
     def _finished(self, result, error):
-        callback = self._done
-        self._busy = False
-        self._task = None
-        self._done = None
+        callback, background = self._done, self._background
+        queued = self._queued
+        self._busy = self._background = False
+        self._task = self._done = None
         if error:
             self._fresh = False
+            if not background:
+                self.intent = None
             self.statusBar().showMessage(error)
             if self.pages.currentIndex() == 0:
                 self.login_error.setText(error)
                 self.login_error.show()
             else:
-                self.notice.setText(error)
-                self.notice.setObjectName("error")
-                self.notice.style().unpolish(self.notice)
-                self.notice.style().polish(self.notice)
+                self.notice.setText(error + "  새로고침으로 다시 시도할 수 있습니다.")
         elif callback:
-            callback(result)
+            try:
+                callback(result)
+            except Exception as callback_error:
+                self._opening = False
+                self.intent = None
+                self.notice.setText(safe_error(callback_error))
+        self._queued = None
+        if queued:
+            self._run(*queued)
         self._update_controls()
 
     def refresh(self):
         if self.session is None or self._busy:
             return
-        self._run(self.backend.list_desktops, self._show_desktops, "데스크톱 상태 확인 중…")
+        self._run(self.backend.list_desktops, self._show_desktops, "", background=True)
 
     def _show_desktops(self, desktops: list[Desktop]):
         selected = self.selected()
         selected_id = selected.id if selected else None
+        scroll = self.table.verticalScrollBar().value()
         self.desktops = desktops
         self._fresh = True
-        self.table.setRowCount(0)
+        self._last_refresh = time.monotonic()
+        self.table.blockSignals(True)
+        self.table.setRowCount(len(desktops))
         for row, desktop in enumerate(desktops):
-            self.table.insertRow(row)
-            status = (
-                "작업 중"
-                if desktop.task_state
-                else {
-                    "ACTIVE": "켜짐",
-                    "SHUTOFF": "꺼짐",
-                    "BUILD": "생성 중",
-                    "ERROR": "오류",
+            if desktop.task_state:
+                status = (
+                    "종료 중"
+                    if "off" in desktop.task_state or desktop.task_state == "stop"
+                    else "부팅 / 재시작 중"
+                )
+            elif desktop.status == "ACTIVE":
+                status = (
+                    "접속 준비됨"
+                    if desktop.ready
+                    else (desktop.readiness_message or "켜짐 · 접속 상태 미확인")
+                )
+            else:
+                status = {
+                    "SHUTOFF": "꺼짐 · 접속하면 자동으로 켜집니다",
+                    "BUILD": "준비 중",
+                    "ERROR": "PC 오류 · 관리자에게 문의",
                 }.get(desktop.status, desktop.status)
-            )
-            peer = self.settings.peer_id(self.session.scope_key, desktop.id)
+            if desktop.id == self._remote_id and self.remote.peer:
+                status = {
+                    "connected": "연결됨",
+                    "opening": "접속 창 열림 · 인증 대기",
+                    "authenticating": "화면 수신 대기",
+                    "disconnected": "연결 끊김",
+                }.get(self.remote.state, status)
+            peer = desktop.peer_id or self.settings.peer_id(self.session.scope_key, desktop.id)
             for column, value in enumerate(
-                (desktop.name, status, ", ".join(desktop.addresses) or "—", peer or "미등록")
+                (desktop.name, status, ", ".join(desktop.addresses), peer)
             ):
                 item = QTableWidgetItem(value)
                 if column == 1:
-                    item.setForeground(
-                        QColor("#86efac" if desktop.allows("connect") else "#aabbd4")
-                    )
+                    item.setForeground(QColor("#86efac" if desktop.ready else "#aabbd4"))
                 item.setToolTip(value)
                 self.table.setItem(row, column, item)
             self.table.setRowHeight(row, 64)
         if desktops:
-            row = next((i for i, desktop in enumerate(desktops) if desktop.id == selected_id), 0)
-            self.table.selectRow(row)
+            self.table.selectRow(
+                next((i for i, d in enumerate(desktops) if d.id == selected_id), 0)
+            )
+        self.table.verticalScrollBar().setValue(scroll)
+        self.table.blockSignals(False)
         self.count.setText(
-            f"데스크톱 {len(desktops)}대"
+            f"내 PC {len(desktops)}대"
             if desktops
-            else "이 프로젝트에 VM이 없습니다. 관리자에게 테스트 VM 할당을 요청하세요."
+            else "배정된 PC가 없습니다. 관리자에게 데스크톱 배정을 요청하세요."
         )
-        self.notice.setObjectName("notice")
-        self.notice.setText(
-            "데모 모드 · 실제 VM과 연결되지 않습니다. 전원 버튼으로 동작을 살펴보세요."
-            if self.demo
-            else "전원을 켠 뒤 Windows와 RustDesk가 시작될 때까지 기다리세요."
-        )
-        self.notice.style().unpolish(self.notice)
-        self.notice.style().polish(self.notice)
-        self.statusBar().showMessage("최신 상태를 확인했습니다.")
+        if not self.intent:
+            self.notice.setText(
+                "데모 모드 · 실제 원격 연결은 실행하지 않습니다."
+                if self.demo
+                else "PC를 선택하고 접속하세요. 꺼져 있으면 자동으로 켠 뒤 연결합니다."
+            )
         self._selection_changed()
+        self._advance_connect()
 
     def selected(self) -> Desktop | None:
         row = self.table.currentRow()
@@ -448,29 +558,42 @@ class MainWindow(QMainWindow):
 
     def _selection_changed(self):
         desktop = self.selected()
-        self.details.setText(f"VM ID  {desktop.id}" if desktop else "데스크톱을 선택하세요.")
+        self.details.setText(desktop.name if desktop else "데스크톱을 선택하세요.")
         self._update_controls()
 
     def _update_controls(self):
-        self.login_button.setEnabled(not self._busy)
-        self.login_button.setText("로그인 중…" if self._busy and self.session is None else "로그인")
+        busy = self._foreground_busy()
+        self.login_button.setEnabled(not busy)
+        self.login_button.setText("로그인 중…" if busy and self.session is None else "로그인")
         if not hasattr(self, "table"):
             return
         desktop = self.selected()
-        available = desktop is not None and not self._busy and self._fresh
+        available = desktop is not None and not busy and self._fresh
         for action, button in self.buttons.items():
-            button.setEnabled(bool(available and desktop.allows(action)))
-        self.connect_button.setEnabled(bool(available and desktop.allows("connect")))
+            button.setEnabled(bool(available and not self.intent and desktop.allows(action)))
+        self.connect_button.setEnabled(
+            bool(available and not self.intent and desktop.allows("connect"))
+        )
+        self.connect_button.setText(
+            "켜고 접속" if desktop and desktop.status == "SHUTOFF" else "데스크톱 접속"
+        )
         self.peer_button.setEnabled(bool(available))
         self.refresh_button.setEnabled(not self._busy)
-        self.logout_button.setEnabled(not self._busy)
-        self.settings_button.setEnabled(not self._busy)
+        self.logout_button.setEnabled(not busy)
+        self.settings_button.setEnabled(not busy)
+        self.cancel_button.setVisible(self.intent is not None or self._opening)
+        self.disconnect_button.setEnabled(bool(self.remote.peer))
 
     def power(self, action: str):
         desktop = self.selected()
-        if self._busy or not self._fresh or desktop is None or not desktop.allows(action):
+        if (
+            self._foreground_busy()
+            or not self._fresh
+            or desktop is None
+            or not desktop.allows(action)
+        ):
             return
-        title = {"start": "켜기", "stop": "전원 정지", "reboot": "재부팅"}[action]
+        title = {"start": "켜기", "stop": "PC 종료", "reboot": "재부팅 후 접속"}[action]
         if action != "start":
             answer = QMessageBox.question(
                 self,
@@ -481,11 +604,16 @@ class MainWindow(QMainWindow):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
-        self._run(
-            lambda: self.backend.power(desktop.id, action),
-            lambda _: self.refresh(),
-            f"{title} 요청 중…",
-        )
+        if action == "reboot" and isinstance(self.backend, BrokerBackend):
+            self.intent = ConnectIntent.begin(desktop, reboot=True)
+            self.notice.setText("재부팅을 요청합니다. Windows가 준비되면 자동으로 다시 접속합니다.")
+
+        def accepted(_):
+            if self._remote_id == desktop.id and action in ("stop", "reboot"):
+                self.remote.close()
+            self.refresh()
+
+        self._run(lambda: self.backend.power(desktop.id, action), accepted, f"{title} 요청 중…")
 
     def configure_peer(self) -> bool:
         desktop = self.selected()
@@ -521,35 +649,156 @@ class MainWindow(QMainWindow):
     def connect_desktop(self):
         desktop = self.selected()
         if (
-            self._busy
+            self._foreground_busy()
             or not self._fresh
-            or self.session is None
-            or desktop is None
+            or not self.session
+            or not desktop
             or not desktop.allows("connect")
+            or self.intent
         ):
             return
         if self.demo:
             self.statusBar().showMessage("데모 모드에서는 RustDesk를 실행하지 않습니다.")
             return
-        peer = self.settings.peer_id(self.session.scope_key, desktop.id)
-        if not peer:
+        peer = desktop.peer_id or self.settings.peer_id(self.session.scope_key, desktop.id)
+        if self.remote.state != "disconnected" and peer and focus_peer(peer):
+            self.statusBar().showMessage("열려 있는 원격 창으로 이동했습니다.")
+            return
+        if self.remote.peer:
+            if (
+                self._remote_id != desktop.id
+                and QMessageBox.question(
+                    self,
+                    "PC 전환",
+                    "선택한 PC로 연결을 바꿀까요? 기존 PC의 작업은 유지됩니다.",
+                )
+                != QMessageBox.StandardButton.Yes
+            ):
+                return
+            self.remote.close()
+        if not peer and not isinstance(self.backend, BrokerBackend):
             if not self.configure_peer():
                 return
-            peer = self.settings.peer_id(self.session.scope_key, desktop.id)
-        try:
-            launch_rustdesk(peer, self.settings.rustdesk_path)
-            self.statusBar().showMessage(
-                "RustDesk 접속 창을 열었습니다. 인증은 RustDesk에서 진행하세요."
+        self._auto_retried = False
+        self.intent = ConnectIntent.begin(desktop)
+        self._advance_connect()
+
+    def _advance_connect(self):
+        if self.intent is None or self._foreground_busy():
+            return
+        desktop = next((d for d in self.desktops if d.id == self.intent.desktop_id), None)
+        step = self.intent.step(desktop)
+        if step in ("timeout", "missing", "error"):
+            self.intent = None
+            self.notice.setText(
+                {
+                    "timeout": "접속 준비 시간이 초과됐습니다. PC 상태를 확인하고 다시 접속하세요.",
+                    "missing": "PC 배정이 변경됐습니다. 관리자에게 문의하세요.",
+                    "error": "PC에 오류가 있습니다. 관리자에게 문의하세요.",
+                }[step]
             )
-        except UserError as error:
-            QMessageBox.warning(self, "원격 접속", str(error))
+        elif step == "start":
+            self.notice.setText("PC를 켜고 있습니다. Windows가 준비되면 자동으로 연결합니다.")
+            self._run(
+                lambda: self.backend.power(desktop.id, "start"),
+                lambda _: self.refresh(),
+                "PC 켜는 중…",
+            )
+        elif step == "wait":
+            seconds = max(0, int(self.intent.deadline - time.monotonic()))
+            self.notice.setText(
+                f"{desktop.name} 접속 준비 중 · 최대 {seconds}초 남음. "
+                "취소해도 PC 전원은 유지됩니다."
+            )
+        elif step == "connect":
+            self.intent = None
+            self._opening = True
+            generation = self._connect_generation
+
+            def open_peer(peer):
+                self._opening = False
+                if generation != self._connect_generation or self.session is None:
+                    return
+                self.remote.open(peer, self.settings.rustdesk_path)
+                self._remote_id = desktop.id
+                self.notice.setText(
+                    "원격 접속 창을 열었습니다. 첫 연결에는 RustDesk 암호를 입력하세요."
+                )
+
+            if isinstance(self.backend, BrokerBackend):
+                self._run(
+                    lambda: self.backend.connection_peer(desktop.id),
+                    open_peer,
+                    "접속 권한 확인 중…",
+                )
+            else:
+                try:
+                    open_peer(
+                        desktop.peer_id or self.settings.peer_id(self.session.scope_key, desktop.id)
+                    )
+                except UserError as error:
+                    self.notice.setText(str(error))
+        self._update_controls()
+
+    def cancel_connect(self):
+        self._connect_generation += 1
+        self._opening = False
+        self.intent = None
+        self.notice.setText("자동 접속을 취소했습니다. 이미 요청한 전원 작업은 계속 진행됩니다.")
+        self._update_controls()
+
+    def disconnect(self):
+        self.cancel_connect()
+        self.remote.close()
+        self.notice.setText("원격 창을 닫았습니다. 업무용 PC와 실행 중인 프로그램은 유지됩니다.")
+        self._update_controls()
+
+    def _poll_remote(self):
+        state = self.remote.poll()
+        if self.session and self._last_refresh and time.monotonic() - self._last_refresh > 30:
+            self._fresh = False
+        if (
+            state == "disconnected"
+            and self.remote.was_connected
+            and not self.intent
+            and not self._auto_retried
+            and isinstance(self.backend, BrokerBackend)
+        ):
+            desktop = next((d for d in self.desktops if d.id == self._remote_id), None)
+            if desktop and desktop.ready is False:
+                self._auto_retried = True
+                self.remote.close()
+                self.intent = ConnectIntent.begin(desktop)
+        if self.intent and time.monotonic() >= self.intent.deadline:
+            self.intent = None
+            self.notice.setText(
+                "접속 대기 시간이 초과됐습니다. 네트워크와 PC 상태를 확인하고 다시 시도하세요."
+            )
+        self._update_controls()
+
+    def about(self):
+        from .updates import show_update_dialog
+
+        show_update_dialog(self)
 
     def closeEvent(self, event):
         if self._busy:
             event.ignore()
             self.statusBar().showMessage("진행 중인 요청이 끝난 뒤 창을 닫아주세요.")
             return
+        if self.remote.peer:
+            answer = QMessageBox.question(
+                self,
+                "앱 종료",
+                "원격 연결 창도 닫고 앱을 종료할까요? 업무용 PC는 계속 켜져 있습니다.",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+        self.intent = None
+        self.remote.close()
         self.timer.stop()
+        self.remote_timer.stop()
         self.backend.close()
         event.accept()
 

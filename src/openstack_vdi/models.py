@@ -88,6 +88,8 @@ class Desktop:
             return False
         if action == "start":
             return self.status == "SHUTOFF"
-        if action in ("stop", "reboot", "connect"):
+        if action == "connect":
+            return self.status in ("ACTIVE", "SHUTOFF")
+        if action in ("stop", "reboot"):
             return self.status == "ACTIVE"
         return False

@@ -30,7 +30,22 @@ class SettingsStore:
             self.warning = "저장된 설정을 읽지 못해 기본 설정으로 시작했습니다."
 
     def profile(self) -> CloudProfile:
+        machine = {}
+        deployment = (
+            Path(os.environ.get("PROGRAMDATA", "/etc")) / "OpenStackVDI" / "deployment.json"
+        )
+        try:
+            if deployment.is_file() and deployment.stat().st_size < 65536:
+                machine = json.loads(deployment.read_text(encoding="utf-8-sig")).get("profile", {})
+        except (OSError, ValueError, AttributeError):
+            self.warning = "회사 연결 설정을 읽지 못했습니다. 관리자에게 문의하세요."
         data = self._data.get("profile", {})
+        if isinstance(machine, dict):
+            data = machine | (data if isinstance(data, dict) else {})
+            # Administrator-installed endpoint and CA override stale user preferences.
+            for key in ("broker_url", "ca_file"):
+                if machine.get(key):
+                    data[key] = machine[key]
         if not isinstance(data, dict):
             data = {}
         fields = CloudProfile.__dataclass_fields__

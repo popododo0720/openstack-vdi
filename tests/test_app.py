@@ -13,11 +13,12 @@ from openstack_vdi.settings import SettingsStore
 @pytest.fixture
 def window(qtbot, tmp_path):
     window = MainWindow(settings=SettingsStore(tmp_path / "settings.json"), demo=True)
-    qtbot.addWidget(window)
+    qtbot.addWidget(window, before_close_func=lambda w: w.remote.close())
     window.show()
     qtbot.waitUntil(lambda: len(window.desktops) == 2 and not window._busy)
     window.timer.stop()
     yield window
+    window.remote.close()
     qtbot.waitUntil(lambda: not window._busy)
 
 
@@ -27,7 +28,7 @@ def test_demo_select_start_refresh_and_reconnect_without_launching(qtbot, window
     assert window.connect_button.isEnabled()
     window.table.selectRow(1)
     assert window.buttons["start"].isEnabled()
-    assert not window.connect_button.isEnabled()
+    assert window.connect_button.isEnabled()
     qtbot.mouseClick(window.buttons["start"], Qt.MouseButton.LeftButton)
     qtbot.waitUntil(lambda: not window._busy)
     assert not window.connect_button.isEnabled()
@@ -37,7 +38,7 @@ def test_demo_select_start_refresh_and_reconnect_without_launching(qtbot, window
     qtbot.waitUntil(lambda: not window._busy)
     assert window.selected().id == "demo-private"
     assert window.connect_button.isEnabled()
-    with patch("openstack_vdi.app.launch_rustdesk") as launch:
+    with patch("openstack_vdi.native_session.launch_rustdesk") as launch:
         qtbot.mouseClick(window.connect_button, Qt.MouseButton.LeftButton)
         launch.assert_not_called()
     assert "데모 모드" in window.statusBar().currentMessage()
@@ -67,7 +68,7 @@ def test_refresh_failure_disables_stale_power_and_connection_controls(qtbot, win
 
 def test_empty_project_does_not_offer_actions(window):
     window._show_desktops([])
-    assert "VM이 없습니다" in window.count.text()
+    assert "배정된 PC가 없습니다" in window.count.text()
     assert not window.connect_button.isEnabled()
     assert not window.peer_button.isEnabled()
 
@@ -75,7 +76,7 @@ def test_empty_project_does_not_offer_actions(window):
 def test_real_connect_uses_selected_project_mapping_not_ip(window):
     window.demo = False
     window.settings.save_peer_id("demo", "demo-work", "123456789")
-    with patch("openstack_vdi.app.launch_rustdesk") as launch:
+    with patch("openstack_vdi.native_session.launch_rustdesk") as launch:
         window.connect_desktop()
         launch.assert_called_once_with("123456789", "")
 
@@ -91,7 +92,7 @@ def test_logout_clears_desktops_and_session(qtbot, window):
 def test_login_clears_password_even_when_authentication_fails(qtbot, tmp_path):
     backend = DemoBackend()
     window = MainWindow(backend=backend, settings=SettingsStore(tmp_path / "settings.json"))
-    qtbot.addWidget(window)
+    qtbot.addWidget(window, before_close_func=lambda w: w.remote.close())
     window.fields["auth_url"].setText("https://example.org/v3")
     window.fields["username"].setText("alice")
     window.fields["project_name"].setText("alice")
@@ -109,3 +110,38 @@ def test_server_names_are_rendered_as_plain_text(window):
     name = '<a href="https://evil">Name</a>'
     window._show_desktops([Desktop("id", name, "ACTIVE")])
     assert window.table.item(0, 0).text() == name
+
+
+def test_refresh_keeps_buttons_live_and_queues_power_click(qtbot, window):
+    import threading
+
+    gate = threading.Event()
+    original = window.backend.list_desktops
+
+    def slow_list():
+        assert gate.wait(3)
+        return original()
+
+    with patch.object(window.backend, "list_desktops", side_effect=slow_list):
+        window.refresh()
+        assert window.connect_button.isEnabled()
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            window.power("stop")
+        assert window._queued is not None
+        gate.set()
+        qtbot.waitUntil(lambda: not window._busy and window._queued is None)
+    assert window.backend._pending["demo-work"][1] == "SHUTOFF"
+
+
+def test_cancel_pending_guest_wait_never_opens_remote(window):
+    from dataclasses import replace
+
+    window.demo = False
+    window.settings.save_peer_id("demo", "demo-work", "123456789")
+    window._show_desktops([replace(window.desktops[0], ready=False)])
+    with patch.object(window.remote, "open") as launch:
+        window.connect_desktop()
+        assert window.intent is not None
+        window.cancel_connect()
+        window._show_desktops([replace(window.desktops[0], ready=True)])
+        launch.assert_not_called()
