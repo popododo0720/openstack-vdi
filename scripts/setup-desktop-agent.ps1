@@ -12,7 +12,11 @@ $cfg = Get-Content -LiteralPath $EnrollmentPath -Raw | ConvertFrom-Json
 if (([Uri]$cfg.broker_url).Scheme -ne 'https' -or -not $cfg.token -or -not $cfg.vm_id) { throw 'Invalid enrollment.' }
 Import-Certificate -FilePath $CaPath -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
 Copy-Item -LiteralPath $EnrollmentPath -Destination (Join-Path $root 'agent.json') -Force
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows-desktop-agent.ps1') -Destination $root -Force
+$agentSource = Join-Path $PSScriptRoot 'windows-desktop-agent.ps1'
+$agentTarget = Join-Path $root 'windows-desktop-agent.ps1'
+if ([IO.Path]::GetFullPath($agentSource) -ne [IO.Path]::GetFullPath($agentTarget)) {
+    Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force
+}
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + (Join-Path $root 'windows-desktop-agent.ps1') + '"')
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew -StartWhenAvailable
