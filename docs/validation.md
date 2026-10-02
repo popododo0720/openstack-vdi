@@ -1,4 +1,6 @@
-# 검증 기록 (2026-10-01)
+# 검증 기록
+
+## 초기 MVP (2026-10-01)
 
 초기 MVP를 실제 OpenStack 테스트 클러스터에서 검증했습니다.
 
@@ -56,10 +58,10 @@
 Linux/Windows 빌드에서 완성된 실행 파일에 `--check-package` 검사를 추가했습니다.
 검증한 Windows 빌드는 GitHub Actions 실행 `36810736986`, 소스 커밋 `c3a0b21`입니다.
 
-현재는 같은 테스트 프로젝트의 VM 13대가 목록에 표시됩니다. 사용자별 전용 VM만
-노출하는 운영용 접근 정책은 아직 적용하지 않았습니다.
+초기 버전에서는 같은 테스트 프로젝트의 VM 13대가 목록에 표시됐습니다. 사용자별 전용 VM만
+노출하는 접근 정책은 당시 적용하지 않았습니다. 아래 0.2 검증에서 변경됐습니다.
 
-아직 검증하지 않은 항목: 한글 IME·다중 모니터·UAC,
+초기 검증에서 제외한 항목: 한글 IME·다중 모니터·UAC,
 일반 사용자별 접근 정책 및 업무망/폐쇄망 분리.
 포트 응답과 서버 정상 실행만으로 화면 전송 성공을 판정하지 않습니다.
 
@@ -71,3 +73,53 @@ OpenStack 인증 정보, Terraform state 및 운영 tfvars는 저장소에 포�
 Windows 단말 증거는 `artifacts/client-e2e/`의 `launcher-authenticated.png`,
 `remote-input-saved.png`, `powercycle-reconnected.png`, `power-stop.log`,
 `power-start.log`, `final-terraform-plan.log`에 보관합니다.
+
+
+## 관리형 브로커·Windows UX 0.2.2 (2026-10-02)
+
+검증 빌드는 커밋 `20db95e`, GitHub Actions 실행 `36977629134`입니다.
+Linux 55개 통과·Windows 전용 1개 제외, Windows 56개 통과했습니다.
+패키징된 EXE 초기화 검사와 Inno Setup 설치 파일 빌드도 통과했습니다.
+
+- Ubuntu VM에 HTTPS 브로커를 배포하고 사용자 UUID별 배정을 적용했습니다.
+  `vdi-prototype`에는 업무용 PC 한 대, `vdi-other`에는 빈 목록이 반환됩니다.
+  미배정 계정의 해당 VM 전원·접속 요청은 모두 403입니다.
+- 일반 사용자의 기존 프로젝트 역할을 제거한 뒤에도 브로커 로그인은 성공하고,
+  프로젝트에 직접 인증하는 기존 경로는 401로 거부됨을 확인했습니다.
+- Windows 준비 에이전트는 재부팅·전원 종료/시작 후 자동 복구했습니다.
+  Nova ACTIVE만으로 연결하지 않고 새 부팅 ID와 준비 신호를 기다립니다.
+- 실제 Windows 앱의 **재부팅 후 접속**에서 전원 요청, 준비 대기, 원격 창 자동
+  재개와 Windows 잠금 화면 수신을 확인했습니다. 상태 관찰 API는 읽기 전용입니다.
+- 0.2.2에서 업무용 Windows 시작 메뉴의 **다시 시작**을 원격 마우스로 눌렀습니다.
+  앱이 연결 끊김을 감지하고 준비를 기다린 뒤 추가 클릭 없이 원격 로그인 화면을
+  다시 열었습니다. 부팅 ID 변경 및 기존 문서 내용 유지도 별도로 확인했습니다.
+  첫 단축키 기반 시도는 접속용 PC에 전달됐으므로 이 결과에 포함하지 않았습니다.
+- **PC 종료 → 켜고 접속** 한 번으로 부팅 후 자동 연결했습니다.
+  별도 시도에서는 **접속 취소** 후 VM이 준비돼도 원격 창이 열리지 않았습니다.
+- 같은 PC를 다시 누르면 기존 원격 창으로 이동했고 중복 창을 만들지 않았습니다.
+- Windows 자격 증명 관리자에 저장한 암호가 앱 재실행 시 복원됐습니다.
+  로그아웃 시 원격 창이 닫혔고, 앱을 다시 시작해도 암호가 복원되지 않았습니다.
+  검증 후 테스트 계정으로 다시 로그인했습니다.
+- 실제 앱의 업데이트 확인 창을 새로고침 주기보다 오래 열어둔 뒤에도 다운로드가
+  진행됐습니다. Windows UAC 승인 후 **0.2.1 → 0.2.2** 설치가 완료됐고,
+  재실행한 앱의 버전 표시, 회사 설정 유지, 저장된 계정 로그인과 원격 접속을 확인했습니다.
+  초기 0.2.0 업데이트 검증에서 발견한 모달 창/새로고침 충돌을 수정했으며,
+  수정된 0.2.1은 별도로 설치한 뒤 위 실제 업데이트를 검증했습니다.
+- 접속용 Windows 자체를 재부팅한 뒤에도 RustDesk 자동 실행과 설치된 앱의
+  회사 설정·저장된 로그인 정보가 유지됐습니다.
+- Terraform 최종 plan은 종료 코드 0, 변경 없음입니다. 임시 설치 파일 전송 서버의
+  18080 포트가 닫혀 있고 브로커 및 RustDesk 두 컨테이너가 실행 중임을 확인했습니다.
+
+설치 파일 SHA-256:
+`fc9e549f9516032b14c89586d66ba7ee7bbe28b85a77b56ac5dad2948efd6942`
+
+로컬 증거는 `artifacts/ux-v2/`의 `broker-after-role-removal.log`,
+`direct-api-denied.log`, `reboot-observer.log`, `automatic-reconnect.png`,
+`oneclick-observer.log`, `oneclick-connected.png`, `cancel-after-ready.png`,
+`credential-restored.png`, `update-fixed-offered.png`, `update-uac.png`,
+`update-completed.png`, `external-reboot-menu.png`, `external-reboot-final.log`,
+`external-reboot-reconnected.png`, `logout-cleared.png`, `logout-restart-empty.png`, `final-ci.log`, `final-terraform-plan.log`에 보관합니다.
+
+SSO, 업무망/폐쇄망 분리, 고가용성, 다중 모니터·한글 IME 전체 검증은 이번 범위에
+포함하지 않습니다. 설치 프로그램 UAC는 확인했지만 원격 업무 앱의 모든 UAC 동작을
+검증한 것은 아닙니다. RustDesk 암호와 이미 열린 세션의 회수는 브로커 배정 회수와 별도입니다.
