@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $deployment = Join-Path $InstallDirectory 'deployment.json'
 if ($EnrollmentPath) {
-    $cfg = Get-Content -LiteralPath $EnrollmentPath -Raw | ConvertFrom-Json
+    $cfg = Get-Content -LiteralPath $EnrollmentPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if (([Uri]$cfg.profile.broker_url).Scheme -ne 'https') { throw 'Enrollment requires HTTPS.' }
     $caSource = $cfg.profile.ca_file
     if (-not [IO.Path]::IsPathRooted($caSource)) {
@@ -19,8 +19,9 @@ if ($EnrollmentPath) {
     $cfg.profile.ca_file = $ca
     [IO.File]::WriteAllText($deployment, ($cfg | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding($false)))
 } elseif (Test-Path $deployment) {
-    $cfg = Get-Content -LiteralPath $deployment -Raw | ConvertFrom-Json
+    $cfg = Get-Content -LiteralPath $deployment -Raw -Encoding UTF8 | ConvertFrom-Json
 } else { throw 'A company enrollment JSON is required on first installation.' }
+if (-not $cfg.rustdesk.id_server -or -not $cfg.rustdesk.relay_server -or -not $cfg.rustdesk.key) { throw 'RustDesk enrollment is incomplete.' }
 $exe = Join-Path $env:ProgramFiles 'RustDesk\rustdesk.exe'
 if (-not (Test-Path $exe)) {
     & (Join-Path $PSScriptRoot 'setup-windows-rustdesk.ps1') -IdServer $cfg.rustdesk.id_server -RelayServer $cfg.rustdesk.relay_server -ServerKey $cfg.rustdesk.key -InstallerPath $RustDeskInstaller

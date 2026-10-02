@@ -66,6 +66,8 @@ class BrokerBackend:
         try:
             if self.session:
                 self.request("POST", "/logout")
+        except (requests.RequestException, UserError):
+            pass  # Local logout must succeed even after expiry or network loss.
         finally:
             self.session = None
             self.http.headers.pop("Authorization", None)
