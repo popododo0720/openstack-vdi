@@ -110,7 +110,7 @@ class NativeSession:
             and time.monotonic() - self.started < 15
         ):
             return "existing"
-        self.offsets = {str(p): (p.stat().st_ino, p.stat().st_size) for p in self._files()}
+        self.offsets = {p.stat().st_ino: p.stat().st_size for p in self._files()}
         self.peer, self.state, self.started = peer, "opening", time.monotonic()
         self.seen_window = self.was_connected = False
         self.reason = ""
@@ -147,20 +147,20 @@ class NativeSession:
         for path in self._files():
             try:
                 stat = path.stat()
-                inode, offset = self.offsets.get(str(path), (stat.st_ino, 0))
-                if inode != stat.st_ino or stat.st_size < offset:
+                offset = self.offsets.get(stat.st_ino, 0)
+                if stat.st_size < offset:
                     offset = 0
                 # Old files renamed by rotation are never interpreted as new session evidence.
                 if (
-                    str(path) not in self.offsets
+                    stat.st_ino not in self.offsets
                     and stat.st_mtime < time.time() - (time.monotonic() - self.started) - 1
                 ):
-                    self.offsets[str(path)] = stat.st_ino, stat.st_size
+                    self.offsets[stat.st_ino] = stat.st_size
                     continue
                 with path.open("rb") as stream:
                     stream.seek(offset)
                     data = stream.read(256 * 1024)
-                    self.offsets[str(path)] = stat.st_ino, stream.tell()
+                    self.offsets[stat.st_ino] = stream.tell()
                 self.consume(data.decode("utf-8", errors="replace"))
             except OSError:
                 continue

@@ -498,6 +498,7 @@ class MainWindow(QMainWindow):
         self.desktops = desktops
         self._fresh = True
         self._last_refresh = time.monotonic()
+        self.statusBar().showMessage("마지막 상태 확인 · " + time.strftime("%H:%M:%S"))
         self.table.blockSignals(True)
         self.table.setRowCount(len(desktops))
         for row, desktop in enumerate(desktops):
