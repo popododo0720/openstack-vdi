@@ -39,3 +39,18 @@ jobs:
           path: dist/OpenStackVDI/
           if-no-files-found: error
 
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $compiler)) { choco install innosetup --yes --no-progress }
+          & $compiler installer/OpenStackVDI.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist/installer/*.exe | Get-FileHash -Algorithm SHA256 | Format-List | Out-File dist/installer/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: OpenStackVDI-Installer
+          path: dist/installer/
+          if-no-files-found: error

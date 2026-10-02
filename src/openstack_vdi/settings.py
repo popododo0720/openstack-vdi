@@ -32,7 +32,7 @@ class SettingsStore:
     def profile(self) -> CloudProfile:
         machine = {}
         deployment = (
-            Path(os.environ.get("PROGRAMDATA", "/etc")) / "OpenStackVDI" / "deployment.json"
+            Path(os.environ.get("ProgramFiles", "/etc")) / "OpenStackVDI" / "deployment.json"
         )
         try:
             if deployment.is_file() and deployment.stat().st_size < 65536:
