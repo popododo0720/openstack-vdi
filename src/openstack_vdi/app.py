@@ -492,7 +492,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self.close)
         elif self._refresh_pending and not self._busy and self.session:
             self._refresh_pending = False
-            QTimer.singleShot(0, self.refresh)
+            self.refresh()
 
     def refresh(self):
         if self._in_callback:
