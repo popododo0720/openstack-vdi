@@ -172,3 +172,28 @@ def test_cancel_inflight_authorization_does_not_launch_late_result(qtbot, window
         gate.set()
         qtbot.waitUntil(lambda: not window._busy)
         launch.assert_not_called()
+
+
+def test_external_disconnect_waits_out_stale_guest_heartbeat(window):
+    import time
+    from dataclasses import replace
+
+    from openstack_vdi.broker_client import BrokerBackend
+
+    window.backend = BrokerBackend()
+    window.demo = False
+    window._show_desktops([replace(window.desktops[0], ready=True, peer_id="123456789")])
+    window._remote_id = window.desktops[0].id
+    window.remote.peer = "123456789"
+    window.remote.was_connected = True
+    window.remote.reason = "network"
+    with (
+        patch.object(window.remote, "poll", return_value="disconnected"),
+        patch.object(window.backend, "connection_peer") as authorize,
+    ):
+        window._poll_remote()
+        assert window.intent is not None
+        assert window._retry_at - time.monotonic() > 30
+        window._advance_connect()
+        authorize.assert_not_called()
+    window.cancel_connect()

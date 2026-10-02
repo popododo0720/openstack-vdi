@@ -608,6 +608,8 @@ class MainWindow(QMainWindow):
             if not answer:
                 return
         if action == "reboot" and isinstance(self.backend, BrokerBackend):
+            self._auto_retried = False
+            self._retry_at = 0.0
             self.intent = ConnectIntent.begin(desktop, reboot=True)
             self.notice.setText("재부팅을 요청합니다. Windows가 준비되면 자동으로 다시 접속합니다.")
 
@@ -770,10 +772,10 @@ class MainWindow(QMainWindow):
             if desktop and desktop.status == "ACTIVE":
                 self._auto_retried = True
                 self.remote.close()
-                self._retry_at = time.monotonic() + 10
+                self._retry_at = time.monotonic() + 35
                 self.intent = ConnectIntent.begin(desktop)
                 self.notice.setText(
-                    "연결이 끊겼습니다. 10초 후 준비 상태를 확인하고 한 번 다시 접속합니다."
+                    "연결이 끊겼습니다. 준비 상태를 다시 확인한 뒤 자동으로 접속합니다."
                 )
         if self.intent and time.monotonic() >= self.intent.deadline:
             self.intent = None
