@@ -151,6 +151,8 @@ class MainWindow(QMainWindow):
         self.intent = None
         self._remote_id = ""
         self._background = False
+        self._in_callback = False
+        self._refresh_pending = False
         self._queued = None
         self._last_refresh = 0.0
         self._auto_retried = False
@@ -473,20 +475,29 @@ class MainWindow(QMainWindow):
             else:
                 self.notice.setText(error + "  새로고침으로 다시 시도할 수 있습니다.")
         elif callback:
+            self._in_callback = True
             try:
                 callback(result)
             except Exception as callback_error:
                 self._opening = False
                 self.intent = None
                 self.notice.setText(safe_error(callback_error))
+            finally:
+                self._in_callback = False
         self._queued = None
         if queued:
             self._run(*queued)
         self._update_controls()
         if self._close_requested and not self._busy:
             QTimer.singleShot(0, self.close)
+        elif self._refresh_pending and not self._busy and self.session:
+            self._refresh_pending = False
+            QTimer.singleShot(0, self.refresh)
 
     def refresh(self):
+        if self._in_callback:
+            self._refresh_pending = True
+            return
         if self.session is None or self._busy:
             return
         self._run(self.backend.list_desktops, self._show_desktops, "", background=True)

@@ -197,3 +197,16 @@ def test_external_disconnect_waits_out_stale_guest_heartbeat(window):
         window._advance_connect()
         authorize.assert_not_called()
     window.cancel_connect()
+
+
+def test_modal_callback_cannot_start_poll_that_swallows_next_action(qtbot, window):
+    completed = []
+
+    def modal_callback(_):
+        # A real modal dialog pumps timer events while its callback is still active.
+        window.refresh()
+        assert not window._busy
+        window._run(lambda: "installed", completed.append, "업데이트 다운로드 중")
+
+    window._run(lambda: "release", modal_callback, "업데이트 확인 중")
+    qtbot.waitUntil(lambda: completed == ["installed"] and not window._busy)
