@@ -14,7 +14,7 @@ from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from keystoneauth1 import session as ks_session
 from keystoneauth1.identity import v3
 from pydantic import BaseModel, Field, SecretStr
@@ -48,8 +48,11 @@ def authenticate(config, username, password):
         user_domain_name=config.get("user_domain", "Default"),
         unscoped=True,
     )
-    with ks_session.Session(auth=auth, verify=config["ca_file"], timeout=15) as session:
+    session = ks_session.Session(auth=auth, verify=config["ca_file"], timeout=15)
+    try:
         return auth.get_access(session).user_id
+    finally:
+        session.session.close()
 
 
 def service_backend(config):
@@ -242,5 +245,12 @@ def create_app(
     @app.get("/client-release")
     def release(user=authorized):
         return user[1].get("client_release", {})
+
+    @app.get("/download/client")
+    def client_download(user=authorized):
+        filename = user[1].get("client_installer", "")
+        if not filename or not Path(filename).is_file():
+            raise HTTPException(404, "설치 파일이 등록되지 않았습니다.")
+        return FileResponse(filename, filename="OpenStackVDI-Setup.exe")
 
     return app
