@@ -20,10 +20,11 @@ class CloudProfile:
     region_name: str = ""
     ca_file: str = ""
     interface: str = "public"
+    broker_url: str = ""
 
     def validate(self) -> None:
         try:
-            parts = urlsplit(self.auth_url)
+            parts = urlsplit(self.broker_url or self.auth_url)
             valid_url = parts.scheme in ("http", "https") and parts.hostname and parts.port != 0
         except ValueError:
             valid_url = False
@@ -31,12 +32,14 @@ class CloudProfile:
             raise UserError(
                 "올바른 OpenStack 인증 주소를 입력하세요. 예: https://cloud.example:5000/v3"
             )
+        if self.broker_url and parts.scheme != "https":
+            raise UserError("VDI 서버는 HTTPS 주소를 사용해야 합니다.")
         if parts.username or parts.password or parts.query or parts.fragment:
             raise UserError("인증 주소에는 계정 정보, 쿼리 문자열, 프래그먼트를 넣을 수 없습니다.")
         if not all(
             (
                 self.username.strip(),
-                self.project_name.strip(),
+                self.project_name.strip() or self.broker_url,
                 self.user_domain.strip(),
                 self.project_domain.strip(),
             )
@@ -49,7 +52,7 @@ class CloudProfile:
 
     @property
     def identity_url(self) -> str:
-        parts = urlsplit(self.auth_url.strip())
+        parts = urlsplit((self.broker_url or self.auth_url).strip())
         path = parts.path.rstrip("/")
         if not path:
             path = "/v3"
@@ -75,6 +78,10 @@ class Desktop:
     status: str
     addresses: tuple[str, ...] = ()
     task_state: str | None = None
+    peer_id: str = ""
+    ready: bool | None = None
+    boot_id: str = ""
+    readiness_message: str = ""
 
     def allows(self, action: str) -> bool:
         if self.task_state:
