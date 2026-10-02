@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from . import __version__
 from .broker_client import BrokerBackend
+from .dialogs import confirm
 from .models import UserError
 
 
@@ -72,7 +73,14 @@ def show_update_dialog(window):
         return
 
     def checked(release):
-        if not release or not newer(release.get("version", "")):
+        if not release:
+            QMessageBox.information(
+                window,
+                "앱 정보",
+                f"OpenStack VDI {__version__}\n관리자가 등록한 업데이트가 없습니다.",
+            )
+            return
+        if not newer(release.get("version", "")):
             QMessageBox.information(
                 window, "앱 정보", f"OpenStack VDI {__version__}\n등록된 최신 버전입니다."
             )
@@ -85,14 +93,11 @@ def show_update_dialog(window):
                 "Linux는 관리자가 배포한 패키지로 업데이트하세요.",
             )
             return
-        if (
-            QMessageBox.question(
-                window,
-                "앱 업데이트",
-                f"{__version__} → {release['version']} 업데이트를 설치할까요?\n"
-                "연결 창과 앱을 닫습니다. 업무용 PC는 계속 켜져 있습니다.",
-            )
-            != QMessageBox.StandardButton.Yes
+        if not confirm(
+            window,
+            "앱 업데이트",
+            f"{__version__} → {release['version']} 업데이트를 설치할까요?\n"
+            "연결 창과 앱을 닫습니다. 업무용 PC는 계속 켜져 있습니다.",
         ):
             return
 

@@ -1,4 +1,4 @@
-#define AppVersion "0.2.0"
+#define AppVersion "0.2.1"
 [Setup]
 AppId={{CDB95992-B140-4B7F-9D20-8ACB5151153D}
 AppName=OpenStack VDI

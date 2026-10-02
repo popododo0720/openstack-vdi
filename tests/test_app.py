@@ -2,7 +2,6 @@ from unittest.mock import patch
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMessageBox
 
 from openstack_vdi.app import MainWindow
 from openstack_vdi.backend import DemoBackend
@@ -45,10 +44,10 @@ def test_demo_select_start_refresh_and_reconnect_without_launching(qtbot, window
 
 
 def test_stop_requires_confirmation_and_cancel_preserves_vm(qtbot, window):
-    with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
+    with patch("openstack_vdi.app.confirm", return_value=False):
         qtbot.mouseClick(window.buttons["stop"], Qt.MouseButton.LeftButton)
     assert window.backend._pending == {}
-    with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+    with patch("openstack_vdi.app.confirm", return_value=True):
         qtbot.mouseClick(window.buttons["stop"], Qt.MouseButton.LeftButton)
     qtbot.waitUntil(lambda: not window._busy)
     assert window.backend._pending["demo-work"][1] == "SHUTOFF"
@@ -125,7 +124,7 @@ def test_refresh_keeps_buttons_live_and_queues_power_click(qtbot, window):
     with patch.object(window.backend, "list_desktops", side_effect=slow_list):
         window.refresh()
         assert window.connect_button.isEnabled()
-        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+        with patch("openstack_vdi.app.confirm", return_value=True):
             window.power("stop")
         assert window._queued is not None
         gate.set()
@@ -144,4 +143,32 @@ def test_cancel_pending_guest_wait_never_opens_remote(window):
         assert window.intent is not None
         window.cancel_connect()
         window._show_desktops([replace(window.desktops[0], ready=True)])
+        launch.assert_not_called()
+
+
+def test_cancel_inflight_authorization_does_not_launch_late_result(qtbot, window):
+    import threading
+    from dataclasses import replace
+
+    from openstack_vdi.broker_client import BrokerBackend
+
+    backend = BrokerBackend()
+    gate = threading.Event()
+    window.backend = backend
+    window.demo = False
+    window._show_desktops([replace(window.desktops[0], ready=True, peer_id="123456789")])
+
+    def authorize(_):
+        assert gate.wait(3)
+        return "123456789"
+
+    with (
+        patch.object(backend, "connection_peer", side_effect=authorize),
+        patch.object(window.remote, "open") as launch,
+    ):
+        window.connect_desktop()
+        assert window._opening
+        window.cancel_connect()
+        gate.set()
+        qtbot.waitUntil(lambda: not window._busy)
         launch.assert_not_called()

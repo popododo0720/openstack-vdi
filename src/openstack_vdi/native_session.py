@@ -95,6 +95,7 @@ class NativeSession:
         self.started = 0.0
         self.seen_window = False
         self.was_connected = False
+        self.reason = ""
 
     def _files(self):
         return list(self.log_root.glob("*.log")) if os.name == "nt" else []
@@ -112,6 +113,7 @@ class NativeSession:
         self.offsets = {str(p): (p.stat().st_ino, p.stat().st_size) for p in self._files()}
         self.peer, self.state, self.started = peer, "opening", time.monotonic()
         self.seen_window = self.was_connected = False
+        self.reason = ""
         launch_rustdesk(peer, executable)
         return "opened"
 
@@ -129,6 +131,9 @@ class NativeSession:
                 self.state, self.was_connected = "connected", True
             elif "Connection closed:" in line or f"Exit io_loop of id={self.peer}" in line:
                 self.state = "disconnected"
+                self.reason = "offline" if "offline" in line.lower() else "network"
+                if "password" in line.lower() or "authentication" in line.lower():
+                    self.reason = "authentication"
 
     def poll(self):
         if not self.peer or os.name != "nt":
