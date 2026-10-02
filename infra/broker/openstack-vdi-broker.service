@@ -1,0 +1,21 @@
+[Unit]
+Description=OpenStack VDI assignment and readiness broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=vdi-broker
+Group=vdi-broker
+WorkingDirectory=/opt/openstack-vdi
+Environment=VDI_BROKER_CONFIG=/etc/openstack-vdi/broker.json
+Environment=PYTHONPATH=/opt/openstack-vdi/src
+ExecStart=/opt/openstack-vdi/venv/bin/uvicorn openstack_vdi.broker.service:create_app --factory --host 0.0.0.0 --port 8443 --workers 1 --no-access-log --ssl-certfile /etc/openstack-vdi/server.pem --ssl-keyfile /etc/openstack-vdi/server-key.pem
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

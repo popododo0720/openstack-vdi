@@ -1,0 +1,4 @@
+fastapi==0.142.2
+uvicorn==0.54.0
+openstacksdk==4.20.0
+requests>=2.32.4,<3
