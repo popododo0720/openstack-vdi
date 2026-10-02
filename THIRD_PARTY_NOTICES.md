@@ -10,6 +10,9 @@ The native launcher depends on these separately maintained projects:
 | Qt for Python / PySide6 / Shiboken6 | LGPL-3.0 / GPL alternatives, per component | https://code.qt.io/pyside/pyside-setup.git/ |
 | Qt | LGPL-3.0 / GPL alternatives, per component | https://code.qt.io/qt/ |
 | OpenStack SDK and Keystone auth | Apache-2.0 | https://opendev.org/openstack/ |
+| Requests | Apache-2.0 | https://github.com/psf/requests |
+| FastAPI (broker) | MIT | https://github.com/fastapi/fastapi |
+| Uvicorn (broker) | BSD-3-Clause | https://github.com/encode/uvicorn |
 | platformdirs | MIT | https://github.com/tox-dev/platformdirs |
 | PyInstaller (build tool and bootloader) | GPL-2.0-or-later with bootloader exception | https://github.com/pyinstaller/pyinstaller |
 
@@ -18,7 +21,8 @@ license files, applicable notices, and corresponding-source access when distribu
 a binary. This table is not an exhaustive dependency license inventory; consult the
 installed packages and their license files for the complete locked dependency tree.
 
-RustDesk is an independent program installed by the user. Its executable and code
+RustDesk is an independent program installed separately. The Windows installer can
+download and verify its official installer when it is missing. Its executable and code
 are not included in this repository or build. The launcher starts it as a separate
 process with a peer ID. RustDesk's own AGPL license and notices remain applicable:
 https://github.com/rustdesk/rustdesk/blob/master/LICENCE
